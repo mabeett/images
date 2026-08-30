@@ -15,12 +15,12 @@ dependencies:
     - less
   galaxy:
     collections:
-    - name: ansible.posix
-      version: 2.2.2
-    - name: ansible.utils
-      version: 6.1.0
-    - name: ansible.windows
-      version: 3.7.0
+      - name: ansible.posix
+        version: 2.2.2
+      - name: ansible.utils
+        version: 6.1.0
+      - name: ansible.windows
+        version: 3.7.0
 
 additional_build_steps:
   prepend_base:
