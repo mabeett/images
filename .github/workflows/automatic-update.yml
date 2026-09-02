@@ -11,6 +11,7 @@ on:
         options:
           - community-ee-base
           - community-ee-minimal
+        default: community-ee-base
       ansible-core-version:
         description: >-
           Ansible-core version. Example: 2.20.0
@@ -23,9 +24,121 @@ jobs:
   build:
     name: 'Build ansible-test images (${{ matrix.name }} with Python ${{ matrix.python }})'
     runs-on: ubuntu-24.04
-
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Define ansible-core version
+        id: get_version
+        run: |
+          ANSIBLE_CORE_VERSION=${{inputs.ansible-core-version}}
+          if [[ "-${{inputs.ansible-core-version}}" = '-latest' ]]; then
+            ANSIBLE_CORE_VERSION=$(curl -sSf "https://pypi.org/pypi/ansible-core/json" | jq -r '.info.version')
+          fi
+          echo "ANSIBLE_CORE_VERSION=$ANSIBLE_CORE_VERSION" >> "$GITHUB_ENV"
+          echo "ANSIBLE_CORE_VERSION=$ANSIBLE_CORE_VERSION" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Use the version
+        run: echo "ansible-core version is ${ANSIBLE_CORE_VERSION}"
+
+      - name: Check out ansible-build-data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ansible-community/ansible-build-data
+          ref: main
+          path: ansible-build-data
+          persist-credentials: false
+
+      #TODO: find the match to the latest ansible-core version
+      - name: get the latest ansible community version deps file
+        working-directory: ansible-build-data
+        run: |
+          DEPS_FILE=$( find ./ -type f -name ansible-\*\.deps \
+            -exec grep -E -l '^_ansible_core_version: '"${ANSIBLE_CORE_VERSION}"'$' {} \; \
+          	| while read -r line; do
+              ver=$(echo "$line" | sed -n 's/.*ansible-\([0-9.]\+[a-z0-9]*\)\.deps/\1/p')
+              tver=$(echo "$ver" \
+                  | sed 's/a\([0-9][0-9]*\)/~alpha\1/g' \
+                  | sed 's/b\([0-9][0-9]*\)/~beta\1/g'  \
+                  | sed 's/rc\([0-9][0-9]*\)/~rc\1/g')
+              echo "$tver $line"
+          done  | sort -V | sed 's/^[^ ]* //' | tail -n 1 )
+          echo "DEPS_FILE=${DEPS_FILE}"
+          echo "DEPS_FILE=${DEPS_FILE}" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Update ansile-core and ollection versions in all EE Files
+        run: |
+          COLLECTIONS=''
+          touch collections_changed
+          git ls-files -- execution-environments/ | grep -E 'execution-environment\.ya?ml$' | while read -r file; do
+            echo "File: ${file}"
+            yq '.dependencies.galaxy.collections[].name' "${file}" | while read -r key; do
+              val=$( grep -E -h "^$key:" ansible-build-data/${DEPS_FILE} | tail -1 | awk '{print $2}' )
+              [[ "-${val}" != "-" ]] && \
+              yq eval -i --indent 2 ".dependencies.galaxy.collections[] |= select(.name == \"$key\") .version = \"$val\"" "${file}" && \
+              echo "- ${key}: \`${val}\`" >> collections_changed || \
+              (
+                echo "### ⚠️ Collection ${key} not found" | tee -a "$GITHUB_STEP_SUMMARY"
+                echo "ansible-build-data/${DEPS_FILE} does not have a collection named $key" | tee -a "$GITHUB_STEP_SUMMARY"
+                exit 33
+              )
+            done
+            if [[ $(yq eval '.dependencies.ansible_core.package_pip' "$file" 2>/dev/null) == ansible-core=* ]]; then
+              yq eval -i --indent 2 '.dependencies.ansible_core.package_pip = "ansible-core==" + strenv(ANSIBLE_CORE_VERSION)' "${file}"
+            else
+              echo "### ⚠️ lack of ansible-core for ${file}"| tee -a "$GITHUB_STEP_SUMMARY"
+              echo "The ${file} does not declare an ansible-core package (no valid 'dependencies.ansible_core.package_pip' ansible-core key)" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          COLLECTIONS=$(cat collections_changed)
+          if [ -z "$COLLECTIONS" ]; then
+            COLLECTIONS="No collection versions were updated."
+          fi
+
+          echo "COLLECTIONS<<EOF" >> $GITHUB_ENV
+          echo "$COLLECTIONS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # Compute changed directories (same as before)
+          echo "DIRS=$(git diff --name-only -- execution-environments/ | awk -F '/' '{ print $2 }' | sort -u | paste -sd ', ')" >> $GITHUB_ENV
+          rm -f collections_changed
+
+      - name: Create Pull Request with updated versions
+        id: create_pr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: |
+            execution-environments/**
+          commit-message: "chore: update collection versions from environment variables"
+          branch: "update-collection-versions"     # You can customize this name
+          delete-branch: true
+          title: "${{ env.ANSIBLE_CORE_VERSION }}-1: Updates ansible-core &/or collection versions for ${{ env.DIRS}}"
+          body: |
+            This PR updates
+            
+            - ansible-core: `${{ env.ANSIBLE_CORE_VERSION }}`
+            
+            the following collections:
+            ${{ env.COLLECTIONS }}
+            
+            Auto-generated by [create-pull-request](https://github.com/peter-evans/create-pull-request).
+          labels: |
+            automated-pr
+            dependencies
+          # reviewers: |
+          #   username1
+          #   username2
+
+      - name: debug
+        working-directory: ansible-build-data
+        run: |
+          env
+        shell: bash
