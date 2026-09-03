@@ -123,7 +123,8 @@ jobs:
             podman search --format '{{.Tag}}' \
               --list-tags ghcr.io/${IMAGE_NAME} | \
             grep -- '${{ env.ANSIBLE_CORE_VERSION }}-' | \
-            awk -F'-' '{ if (NF > 1 && $2 ~ /^[0-9]+$/) print $2 + 1; else print 1 }' )" >> "$GITHUB_ENV"
+            awk -F'-' '{ if (NF > 1 && $2 ~ /^[0-9]+$/) { print $2 + 1; found=1 } } END { if (!found) print 1 }'
+          )" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Create Pull Request with updated versions
