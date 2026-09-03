@@ -43,9 +43,6 @@ jobs:
           echo "ANSIBLE_CORE_VERSION=$ANSIBLE_CORE_VERSION" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Use the version ${{ env.ANSIBLE_CORE_VERSION }}
-        run: echo "ansible-core version is ${{ env.ANSIBLE_CORE_VERSION }}"
-
       - name: Check out ansible-build-data
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -68,7 +65,6 @@ jobs:
                   | sed 's/rc\([0-9][0-9]*\)/~rc\1/g')
               echo "$tver $line"
           done  | sort -V | sed 's/^[^ ]* //' | tail -n 1 )
-          echo "DEPS_FILE=${DEPS_FILE}"
           echo "DEPS_FILE=${DEPS_FILE}" >> "$GITHUB_ENV"
         shell: bash
 
@@ -108,6 +104,27 @@ jobs:
           # Compute changed directories (same as before)
           echo "DIRS=$(git diff --name-only -- execution-environments/ | awk -F '/' '{ print $2 }' | sort -u | paste -sd ', ')" >> $GITHUB_ENV
           rm -f collections_changed
+        shell: bash
+
+      - name: VInstall dependencies
+        run: |
+          python3 -m pip install ansible-builder
+          python3 -m pip install setuptools
+          sudo apt install podman --yes
+          pwd
+          ls -l
+        shell: bash
+
+      - name: Install dependencies
+        env:
+          IMAGE_NAME: ${{ github.repository_owner }}/${{ inputs.ee-name }}
+        run: |
+          echo "EE_VERSION=$( \
+            podman search --format '{{.Tag}}' \
+              --list-tags ghcr.io/${IMAGE_NAME} | \
+            grep -- '${{ env.ANSIBLE_CORE_VERSION }}-' | \
+            awk -F'-' '{print $2 + 1}' )" >> "$GITHUB_ENV"
+        shell: bash
 
       - name: Create Pull Request with updated versions
         id: create_pr
@@ -119,7 +136,7 @@ jobs:
           commit-message: "chore: update collection versions from environment variables"
           branch: "update-collection-versions"     # You can customize this name
           delete-branch: true
-          title: "${{ env.ANSIBLE_CORE_VERSION }}-1: Updates ansible-core &/or collection versions for ${{ env.DIRS}}"
+          title: "${{ env.ANSIBLE_CORE_VERSION }}-${{env.EE_VERSION}}: Updates ansible-core &/or collection versions for ${{ env.DIRS}}"
           body: |
             This PR updates
             
