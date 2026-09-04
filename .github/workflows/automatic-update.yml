@@ -29,7 +29,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -131,12 +131,12 @@ jobs:
           title: "${{ env.ANSIBLE_CORE_VERSION }}-${{env.EE_VERSION}}: Updates ansible-core &/or collection versions for ${{ env.DIRS}}"
           body: |
             This PR updates
-            
+
             - ansible-core: `${{ env.ANSIBLE_CORE_VERSION }}`
-            
+
             the following collections:
             ${{ env.COLLECTIONS }}
-            
+
             Triggered by [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
           labels: |
