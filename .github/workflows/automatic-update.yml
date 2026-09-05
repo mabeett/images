@@ -92,17 +92,16 @@ jobs:
             fi
           done
           COLLECTIONS=$(cat collections_changed)
-          if [ -z "$COLLECTIONS" ]; then
-            COLLECTIONS="No collection versions were updated."
-          fi
 
           echo "COLLECTIONS<<EOF" >> $GITHUB_ENV
           echo "$COLLECTIONS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          # Compute changed directories (same as before)
-          echo "DIRS=$(git diff --name-only -- execution-environments/ | awk -F '/' '{ print $2 }' | sort -u | paste -sd ', ')" >> $GITHUB_ENV
-          rm -f collections_changed
+          echo "DIRS=$(git diff --name-only -- execution-environments/ | \
+            awk -F '/' '{ print $2 }' | \
+            sort -u | \
+            awk '{printf "%s%s", sep, $0; sep=", "} END {print ""}' \
+          )" >> $GITHUB_ENV
         shell: bash
 
       - name: Define the new EE version for ${{ env.ANSIBLE_CORE_VERSION }}
@@ -125,17 +124,17 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           add-paths: |
             execution-environments/**
-          commit-message: "chore: update collection versions from environment variables"
+          commit-message: "${{ env.COLLECTIONS && format('{0}-{1}: Update ansible-core and collection versions for {2}', env.ANSIBLE_CORE_VERSION, env.EE_VERSION, env.DIRS) || format('{0}-{1}: Update ansible-core version for {2}', env.ANSIBLE_CORE_VERSION, env.EE_VERSION, env.DIRS) }}"
           branch: "ansible-core-${{ env.ANSIBLE_CORE_VERSION }}-${{env.EE_VERSION}}"
           delete-branch: true
-          title: "${{ env.ANSIBLE_CORE_VERSION }}-${{env.EE_VERSION}}: Updates ansible-core &/or collection versions for ${{ env.DIRS}}"
+          title: "${{ env.COLLECTIONS && format('chore: update ansible-core and collection versions for {0} ({1}-{2})', env.DIRS, env.ANSIBLE_CORE_VERSION, env.EE_VERSION) || format('chore: update ansible-core for {0} ({1}-{2})', env.DIRS, env.ANSIBLE_CORE_VERSION, env.EE_VERSION) }}"
           body: |
             This PR updates
 
             - ansible-core: `${{ env.ANSIBLE_CORE_VERSION }}`
 
             the following collections:
-            ${{ env.COLLECTIONS }}
+            ${{ env.COLLECTIONS || '(No collection versions were updated.)' }}
 
             Triggered by [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
