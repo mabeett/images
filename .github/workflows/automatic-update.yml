@@ -16,9 +16,9 @@ on:
         description: >-
           Ansible-core version. Example: 2.20.0
         default: latest
-  # Run daily (Monday at 08:00 UTC)
-  # schedule:
-  #   - cron: '0 8 * * *'
+  # Run daily (at 08:00 UTC)
+  schedule:
+    - cron: '0 8 * * *'
 
 jobs:
   build:
