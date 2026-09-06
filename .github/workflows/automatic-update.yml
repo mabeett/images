@@ -142,6 +142,8 @@ jobs:
             automated-pr
             dependencies
 
+          reviewers: 'release management team'
+
       - name: Summary
         if: always()
         run: |
