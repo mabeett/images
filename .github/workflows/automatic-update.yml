@@ -36,12 +36,14 @@ jobs:
       - name: Define ansible-core version
         id: get_version
         run: |
-          ANSIBLE_CORE_VERSION=${{inputs.ansible-core-version}}
-          if [[ "-${{inputs.ansible-core-version}}" = '-latest' ]]; then
+          ANSIBLE_CORE_VERSION=${INPUTS_ANSIBLE_CORE_VERSION}
+          if [[ "-${INPUTS_ANSIBLE_CORE_VERSION}" = '-latest' ]]; then
             ANSIBLE_CORE_VERSION=$(curl -sSf "https://pypi.org/pypi/ansible-core/json" | jq -r '.info.version')
           fi
           echo "ANSIBLE_CORE_VERSION=$ANSIBLE_CORE_VERSION" >> "$GITHUB_ENV"
         shell: bash
+        env:
+          INPUTS_ANSIBLE_CORE_VERSION: ${{inputs.ansible-core-version}}
 
       - name: Check out ansible-build-data
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -55,7 +57,7 @@ jobs:
         working-directory: ansible-build-data
         run: |
           DEPS_FILE=$( find ./ -type f -name ansible-\*\.deps \
-            -exec grep -E -l '^_ansible_core_version: '"${{ env.ANSIBLE_CORE_VERSION }}"'$' {} \; \
+            -exec grep -E -l '^_ansible_core_version: '"${ANSIBLE_CORE_VERSION}"'$' {} \; \
           	| while read -r line; do
               ver=$(echo "$line" | sed -n 's/.*ansible-\([0-9.]\+[a-z0-9]*\)\.deps/\1/p')
               tver=$(echo "$ver" \
@@ -85,7 +87,7 @@ jobs:
               )
             done
             if [[ $(yq eval '.dependencies.ansible_core.package_pip' "$file" 2>/dev/null) == ansible-core=* ]]; then
-              yq eval -i --indent 2 '.dependencies.ansible_core.package_pip = "ansible-core==${{ env.ANSIBLE_CORE_VERSION }}"' "${file}"
+              yq eval -i --indent 2 '.dependencies.ansible_core.package_pip = "ansible-core==${ANSIBLE_CORE_VERSION}"' "${file}"
             else
               echo "### ⚠️ lack of ansible-core for ${file}" | tee -a "$GITHUB_STEP_SUMMARY"
               echo "The ${file} does not declare an ansible-core package (no valid 'dependencies.ansible_core.package_pip' ansible-core key)" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -112,14 +114,14 @@ jobs:
           echo "EE_VERSION=$( \
             podman search --format '{{.Tag}}' \
               --list-tags ghcr.io/${IMAGE_NAME} | \
-            grep -- '${{ env.ANSIBLE_CORE_VERSION }}-' | \
+            grep -- '${ANSIBLE_CORE_VERSION}-' | \
             awk -F'-' '{ if (NF > 1 && $2 ~ /^[0-9]+$/) { print $2 + 1; found=1 } } END { if (!found) print 1 }'
           )" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Create Pull Request
         id: create-pr
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           add-paths: |
@@ -147,9 +149,12 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          if [ -n "${{ steps.create-pr.outputs.pull-request-number }}" ]; then
-            echo "✅ PR #${{ steps.create-pr.outputs.pull-request-number }} created/updated" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "🔗 ${{ steps.create-pr.outputs.pull-request-url }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -n "${STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_NUMBER}" ]; then
+            echo "✅ PR #${STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_NUMBER} created/updated" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "🔗 ${STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "ℹ️ No changes detected – skipping PR creation" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
+        env:
+          STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+          STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_URL: ${{ steps.create-pr.outputs.pull-request-url }}
