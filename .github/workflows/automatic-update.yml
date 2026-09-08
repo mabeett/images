@@ -30,8 +30,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
 
       - name: Define ansible-core version
         id: get_version
@@ -69,7 +67,7 @@ jobs:
           echo "DEPS_FILE=${DEPS_FILE}" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Update ansile-core and ollection versions in all EE Files
+      - name: Update ansible-core and collection versions in all EE Files
         run: |
           COLLECTIONS=''
           touch collections_changed
@@ -119,32 +117,65 @@ jobs:
           )" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Create Pull Request
+      - name: Define the new EE version for ${{ env.ANSIBLE_CORE_VERSION }} second
+        env:
+          IMAGE_NAME: ${{ github.repository_owner }}/${{ inputs.ee-name }}
+        run: |
+          echo "ANSIBLE_BRANCH_NAME=ansible-core-${ANSIBLE_CORE_VERSION}-${EE_VERSION}" >> "$GITHUB_ENV"
+
+          CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core and collection versions for ${DIRS}"
+          CI_PR_TITTLE="chore: update ansible-core and collection versions for ${DIRS} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
+
+          if [[ "-${COLLECTIONS}" = "-" ]]; then
+            CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core version for ${DIRS}"
+            CI_PR_TITTLE="chore: update ansible-core for ${DIRS} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
+          fi
+          echo "CI_COMMIT_MESSAGE=${CI_COMMIT_MESSAGE}" >> "$GITHUB_ENV"
+          echo "CI_PR_TITTLE=${CI_PR_TITTLE}" >> "$GITHUB_ENV"
+
+        shell: bash
+
+      - name: Checking out to a new branch
+        run: |
+          git checkout -b "${ANSIBLE_BRANCH_NAME}"
+
+      - name: Setting the user details
+        run: |
+          git config --global user.name "Github Actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit ansible-build-data and push the changes to github
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git add execution-environments/**
+          git commit -m "${CI_COMMIT_MESSAGE}"
+          git branch
+          git push origin -f "${ANSIBLE_BRANCH_NAME}"
+
+      - name: Create PR
         id: create-pr
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          add-paths: |
-            execution-environments/**
-          commit-message: "${{ env.COLLECTIONS && format('{0}-{1}: Update ansible-core and collection versions for {2}', env.ANSIBLE_CORE_VERSION, env.EE_VERSION, env.DIRS) || format('{0}-{1}: Update ansible-core version for {2}', env.ANSIBLE_CORE_VERSION, env.EE_VERSION, env.DIRS) }}"
-          branch: "ansible-core-${{ env.ANSIBLE_CORE_VERSION }}-${{env.EE_VERSION}}"
-          delete-branch: true
-          title: "${{ env.COLLECTIONS && format('chore: update ansible-core and collection versions for {0} ({1}-{2})', env.DIRS, env.ANSIBLE_CORE_VERSION, env.EE_VERSION) || format('chore: update ansible-core for {0} ({1}-{2})', env.DIRS, env.ANSIBLE_CORE_VERSION, env.EE_VERSION) }}"
-          body: |
-            This PR updates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSIGNEE: 'release management team'
+        run: |
+          body="./pr-body"
+          echo -e "This PR updates\n\n- ansible-core: \`${ANSIBLE_CORE_VERSION}\`\n\n" >> "${body}"
 
-            - ansible-core: `${{ env.ANSIBLE_CORE_VERSION }}`
+          if [[ "-" != "-${COLLECTIONS}" ]]; then
+            echo -e "the following collections:\n\n${COLLECTIONS}\n\n" >> "${body}"
+          fi
 
-            the following collections:
-            ${{ env.COLLECTIONS || '(No collection versions were updated.)' }}
+          echo "Triggered by [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> "${body}"
+          echo -n "pr-url=" >> "${GITHUB_OUTPUT}"
 
-            Triggered by [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
-
-          labels: |
-            automated-pr
-            dependencies
-
-          reviewers: 'release management team'
+          gh pr create \
+            --base main \
+            --head "${ANSIBLE_BRANCH_NAME}" \
+            --title "${CI_PR_TITTLE}" \
+            --body-file "${body}" \
+            --assignee "${ASSIGNEE}" \
+          | tee -a "$GITHUB_OUTPUT"
 
       - name: Summary
         if: always()
