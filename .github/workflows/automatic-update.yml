@@ -159,7 +159,7 @@ jobs:
         id: create-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASSIGNEE: 'release management team'
+          ASSIGNEE: 'mabeett'
         run: |
           body="./pr-body"
           echo -e "This PR updates\n\n- ansible-core: \`${ANSIBLE_CORE_VERSION}\`\n\n" >> "${body}"
