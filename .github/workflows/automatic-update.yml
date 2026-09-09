@@ -66,7 +66,9 @@ jobs:
                   | sed 's/rc\([0-9][0-9]*\)/~rc\1/g')
               echo "$tver $line"
           done  | sort -V | sed 's/^[^ ]* //' | tail -n 1)
+          ANSIBLE_COMMUNITY_VERSION=$(echo "${DEPS_FILE}" | sed -n 's/.*ansible-\([0-9.]\+[a-z0-9]*\)\.deps/\1/p')
           echo "DEPS_FILE=${DEPS_FILE}" >> "$GITHUB_ENV"
+          echo "ANSIBLE_COMMUNITY_VERSION=${ANSIBLE_COMMUNITY_VERSION}" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Update ansible-core and collection versions in all EE Files
@@ -124,14 +126,14 @@ jobs:
         env:
           IMAGE_NAME: ${{ github.repository_owner }}/${{ inputs.ee-name }}
         run: |
-          echo "ANSIBLE_BRANCH_NAME=ansible-core-${ANSIBLE_CORE_VERSION}-${EE_VERSION}" >> "$GITHUB_ENV"
+          echo "ANSIBLE_BRANCH_NAME=ansible-core-${ANSIBLE_CORE_VERSION}-${EE_VERSION}_${ANSIBLE_COMMUNITY_VERSION}" >> "$GITHUB_ENV"
 
-          CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core and collection versions for ${EES}"
-          CI_PR_TITTLE="chore: update ansible-core and collection versions for ${EES} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
+          CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core and collection versions for ${EES} from ${ANSIBLE_COMMUNITY_VERSION}"
+          CI_PR_TITTLE="chore: update ansible-core and collection versions for ${EES} from ${ANSIBLE_COMMUNITY_VERSION} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
 
           if [[ "-${COLLECTIONS}" = "-" ]]; then
-            CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core version for ${EES}"
-            CI_PR_TITTLE="chore: update ansible-core for ${EES} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
+            CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core version for ${EES} from ${ANSIBLE_COMMUNITY_VERSION}"
+            CI_PR_TITTLE="chore: update ansible-core for ${EES} from ${ANSIBLE_COMMUNITY_VERSION} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
           fi
           echo "CI_COMMIT_MESSAGE=${CI_COMMIT_MESSAGE}" >> "$GITHUB_ENV"
           echo "CI_PR_TITTLE=${CI_PR_TITTLE}" >> "$GITHUB_ENV"
@@ -177,10 +179,10 @@ jobs:
 
           if [[ "-" != "-${COLLECTIONS}" ]]; then
             echo -e "the following collections:\n\n${COLLECTIONS}\n\n" >> "${body}"
-
           fi
 
           echo "Triggered by [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> "${body}"
+          echo "Source from [ansible-build-data](https://github.com/ansible-community/ansible-build-data) version ${ANSIBLE_COMMUNITY_VERSION} " >> "${body}"
 
           # Create PR and capture the URL
           PR_URL=$(gh pr create \
