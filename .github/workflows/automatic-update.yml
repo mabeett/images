@@ -90,7 +90,7 @@ jobs:
               yq eval -i --indent 2 '.dependencies.ansible_core.package_pip = "ansible-core=='"${ANSIBLE_CORE_VERSION}"'"' "${file}"
             else
               echo "### ⚠️ lack of ansible-core for ${file}" | tee -a "$GITHUB_STEP_SUMMARY"
-              echo "The ${file} does not declare an ansible-core package " | tee -a "$GITHUB_STEP_SUMMARY""
+              echo "The ${file} does not declare an ansible-core package" | tee -a "$GITHUB_STEP_SUMMARY"
               echo "(no valid 'dependencies.ansible_core.package_pip' ansible-core key)" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
           done
@@ -148,16 +148,26 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Commit ansible-build-data and push the changes to github
+        id: commit
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git add execution-environments/**
-          git commit -m "${CI_COMMIT_MESSAGE}"
-          git branch
-          git push origin -f "${ANSIBLE_BRANCH_NAME}"
+          # Check if there are any changes in execution-environments/
+          if git diff --quiet -- execution-environments/; then
+            echo "ℹ️ No changes detected – skipping commit and PR creation" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "changes=false" >> "$GITHUB_OUTPUT"
+          else
+            git add execution-environments/**
+            git commit -m "${CI_COMMIT_MESSAGE}"
+            git branch
+            git push origin -f "${ANSIBLE_BRANCH_NAME}"
+            echo "✅ Changes committed and pushed to branch ${ANSIBLE_BRANCH_NAME}" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "changes=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create PR
         id: create-pr
+        if: steps.commit.outputs.changes == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASSIGNEE: 'mabeett'
@@ -167,28 +177,22 @@ jobs:
 
           if [[ "-" != "-${COLLECTIONS}" ]]; then
             echo -e "the following collections:\n\n${COLLECTIONS}\n\n" >> "${body}"
+
           fi
 
           echo "Triggered by [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> "${body}"
-          echo -n "pr-url=" >> "${GITHUB_OUTPUT}"
 
-          gh pr create \
+          # Create PR and capture the URL
+          PR_URL=$(gh pr create \
             --base main \
             --head "${ANSIBLE_BRANCH_NAME}" \
             --title "${CI_PR_TITTLE}" \
             --body-file "${body}" \
             --assignee "${ASSIGNEE}" \
-          | tee -a "$GITHUB_OUTPUT"
+            2>&1) || PR_CREATED=$?
 
-      - name: Summary
-        if: always()
-        run: |
-          if [ -n "${STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_NUMBER}" ]; then
-            echo "✅ PR #${STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_NUMBER} created/updated" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "🔗 ${STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -z "{$PR_URL}" ] || [ "${PR_CREATED}" -ne 0 ]; then
+            echo "⚠️ PR creation failed or PR already exists for branch ${ANSIBLE_BRANCH_NAME}" | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "ℹ️ No changes detected – skipping PR creation" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "✅ PR created: ${PR_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
-        env:
-          STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
-          STEPS_CREATE_PR_OUTPUTS_PULL_REQUEST_URL: ${{ steps.create-pr.outputs.pull-request-url }}
