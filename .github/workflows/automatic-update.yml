@@ -33,18 +33,6 @@ jobs:
         with:
           persist-credentials: true
 
-      - name: Define ansible-core version
-        id: get_version
-        run: |
-          ANSIBLE_CORE_VERSION=${INPUTS_ANSIBLE_CORE_VERSION}
-          if [[ "-${INPUTS_ANSIBLE_CORE_VERSION}" = '-latest' ]]; then
-            ANSIBLE_CORE_VERSION=$(curl -sSf "https://pypi.org/pypi/ansible-core/json" | jq -r '.info.version')
-          fi
-          echo "ANSIBLE_CORE_VERSION=$ANSIBLE_CORE_VERSION" >> "$GITHUB_ENV"
-        shell: bash
-        env:
-          INPUTS_ANSIBLE_CORE_VERSION: ${{inputs.ansible-core-version}}
-
       - name: Check out ansible-build-data
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -53,9 +41,14 @@ jobs:
           path: ansible-build-data
           persist-credentials: false
 
-      - name: get the latest Ansible Community version and its deps file
+      - name: Determine Ansible Community version for ansible core (${{inputs.ansible-core-version}}) and its deps file
         working-directory: ansible-build-data
         run: |
+          ANSIBLE_CORE_VERSION=${INPUTS_ANSIBLE_CORE_VERSION}
+          if [[ "-${INPUTS_ANSIBLE_CORE_VERSION}" = '-latest' ]]; then
+            ANSIBLE_CORE_VERSION=$(curl -sSf "https://pypi.org/pypi/ansible-core/json" | jq -r '.info.version')
+          fi
+
           DEPS_FILE=$( find ./ -type f -name ansible-\*\.deps \
             -exec grep -E -l '^_ansible_core_version: '"${ANSIBLE_CORE_VERSION}"'$' {} \; \
           	| while read -r line; do
@@ -66,9 +59,14 @@ jobs:
                   | sed 's/rc\([0-9][0-9]*\)/~rc\1/g')
               echo "$tver $line"
           done  | sort -V | sed 's/^[^ ]* //' | tail -n 1)
+
           ANSIBLE_COMMUNITY_VERSION=$(echo "${DEPS_FILE}" | sed -n 's/.*ansible-\([0-9.]\+[a-z0-9]*\)\.deps/\1/p')
+
+          echo "ANSIBLE_CORE_VERSION=$ANSIBLE_CORE_VERSION" >> "$GITHUB_ENV"
           echo "DEPS_FILE=${DEPS_FILE}" >> "$GITHUB_ENV"
           echo "ANSIBLE_COMMUNITY_VERSION=${ANSIBLE_COMMUNITY_VERSION}" >> "$GITHUB_ENV"
+        env:
+          INPUTS_ANSIBLE_CORE_VERSION: ${{inputs.ansible-core-version}}
         shell: bash
 
       - name: Update ansible-core and collection versions in all EE Files
@@ -76,27 +74,33 @@ jobs:
           COLLECTIONS=''
           touch collections_changed
           git ls-files -- execution-environments/ | grep -E 'execution-environment\.ya?ml$' | while read -r file; do
-            echo "Updating file ${file}"
+            echo "Found ${file} file"
             yq '.dependencies.galaxy.collections[].name' "${file}" | while read -r coll; do
               cver=$( grep -E -h "^$coll:" ansible-build-data/${DEPS_FILE} | tail -1 | awk '{print $2}' )
               [[ "-${cver}" != "-" ]] && \
-              yq eval -i --indent 2 ".dependencies.galaxy.collections[] |= select(.name == \"$coll\") .version = \"$cver\"" "${file}" && \
+              yq eval -i --indent 2 \
+                ".dependencies.galaxy.collections[] |= select(.name == \"${coll}\") .version = \"${cver}\"" \
+                "${file}" && \
               echo "- ${coll}: \`${cver}\`" >> collections_changed || \
               (
                 echo "### ⚠️ Collection ${coll} not found" | tee -a "$GITHUB_STEP_SUMMARY"
-                echo "ansible-build-data/${DEPS_FILE} does not have a collection named $coll" | tee -a "$GITHUB_STEP_SUMMARY"
+                echo "ansible-build-data/${DEPS_FILE} does not have a collection named $coll" \
+                  | tee -a "$GITHUB_STEP_SUMMARY"
                 exit 33
               )
             done
             if [[ $(yq eval '.dependencies.ansible_core.package_pip' "$file" 2>/dev/null) == ansible-core=* ]]; then
-              yq eval -i --indent 2 '.dependencies.ansible_core.package_pip = "ansible-core=='"${ANSIBLE_CORE_VERSION}"'"' "${file}"
+              yq eval -i --indent 2 \
+              ".dependencies.ansible_core.package_pip = \"ansible-core==${ANSIBLE_CORE_VERSION}\"" \
+               "${file}"
             else
               echo "### ⚠️ lack of ansible-core for ${file}" | tee -a "$GITHUB_STEP_SUMMARY"
               echo "The ${file} does not declare an ansible-core package" | tee -a "$GITHUB_STEP_SUMMARY"
-              echo "(no valid 'dependencies.ansible_core.package_pip' ansible-core key)" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "(no valid 'dependencies.ansible_core.package_pip' \`ansible-core key\`)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
             fi
           done
-          COLLECTIONS=$(cat collections_changed)
+          COLLECTIONS=$(cat collections_changed | sort -u)
 
           echo "COLLECTIONS<<EOF" >> $GITHUB_ENV
           echo "$COLLECTIONS" >> $GITHUB_ENV
@@ -131,6 +135,7 @@ jobs:
             CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core version for ${EES} from ${ANSIBLE_COMMUNITY_VERSION}"
             CI_PR_TITTLE="chore: update ansible-core for ${EES} from ${ANSIBLE_COMMUNITY_VERSION} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
           fi
+
           echo "CI_COMMIT_MESSAGE=${CI_COMMIT_MESSAGE}" >> "$GITHUB_ENV"
           echo "CI_PR_TITTLE=${CI_PR_TITTLE}" >> "$GITHUB_ENV"
         shell: bash
