@@ -65,7 +65,7 @@ jobs:
                   | sed 's/b\([0-9][0-9]*\)/~beta\1/g'  \
                   | sed 's/rc\([0-9][0-9]*\)/~rc\1/g')
               echo "$tver $line"
-          done  | sort -V | sed 's/^[^ ]* //' | tail -n 1 )
+          done  | sort -V | sed 's/^[^ ]* //' | tail -n 1)
           echo "DEPS_FILE=${DEPS_FILE}" >> "$GITHUB_ENV"
         shell: bash
 
@@ -74,15 +74,15 @@ jobs:
           COLLECTIONS=''
           touch collections_changed
           git ls-files -- execution-environments/ | grep -E 'execution-environment\.ya?ml$' | while read -r file; do
-            echo "File: ${file}"
-            yq '.dependencies.galaxy.collections[].name' "${file}" | while read -r key; do
-              val=$( grep -E -h "^$key:" ansible-build-data/${DEPS_FILE} | tail -1 | awk '{print $2}' )
-              [[ "-${val}" != "-" ]] && \
-              yq eval -i --indent 2 ".dependencies.galaxy.collections[] |= select(.name == \"$key\") .version = \"$val\"" "${file}" && \
-              echo "- ${key}: \`${val}\`" >> collections_changed || \
+            echo "Updating file ${file}"
+            yq '.dependencies.galaxy.collections[].name' "${file}" | while read -r coll; do
+              cver=$( grep -E -h "^$coll:" ansible-build-data/${DEPS_FILE} | tail -1 | awk '{print $2}' )
+              [[ "-${cver}" != "-" ]] && \
+              yq eval -i --indent 2 ".dependencies.galaxy.collections[] |= select(.name == \"$coll\") .version = \"$cver\"" "${file}" && \
+              echo "- ${coll}: \`${cver}\`" >> collections_changed || \
               (
-                echo "### ⚠️ Collection ${key} not found" | tee -a "$GITHUB_STEP_SUMMARY"
-                echo "ansible-build-data/${DEPS_FILE} does not have a collection named $key" | tee -a "$GITHUB_STEP_SUMMARY"
+                echo "### ⚠️ Collection ${coll} not found" | tee -a "$GITHUB_STEP_SUMMARY"
+                echo "ansible-build-data/${DEPS_FILE} does not have a collection named $coll" | tee -a "$GITHUB_STEP_SUMMARY"
                 exit 33
               )
             done
@@ -90,7 +90,8 @@ jobs:
               yq eval -i --indent 2 '.dependencies.ansible_core.package_pip = "ansible-core=='"${ANSIBLE_CORE_VERSION}"'"' "${file}"
             else
               echo "### ⚠️ lack of ansible-core for ${file}" | tee -a "$GITHUB_STEP_SUMMARY"
-              echo "The ${file} does not declare an ansible-core package (no valid 'dependencies.ansible_core.package_pip' ansible-core key)" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "The ${file} does not declare an ansible-core package " | tee -a "$GITHUB_STEP_SUMMARY""
+              echo "(no valid 'dependencies.ansible_core.package_pip' ansible-core key)" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
           done
           COLLECTIONS=$(cat collections_changed)
@@ -99,7 +100,7 @@ jobs:
           echo "$COLLECTIONS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          echo "DIRS=$(git diff --name-only -- execution-environments/ | \
+          echo "EES=$(git diff --name-only -- execution-environments/ | \
             awk -F '/' '{ print $2 }' | \
             sort -u | \
             awk '{printf "%s%s", sep, $0; sep=", "} END {print ""}' \
@@ -125,12 +126,12 @@ jobs:
         run: |
           echo "ANSIBLE_BRANCH_NAME=ansible-core-${ANSIBLE_CORE_VERSION}-${EE_VERSION}" >> "$GITHUB_ENV"
 
-          CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core and collection versions for ${DIRS}"
-          CI_PR_TITTLE="chore: update ansible-core and collection versions for ${DIRS} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
+          CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core and collection versions for ${EES}"
+          CI_PR_TITTLE="chore: update ansible-core and collection versions for ${EES} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
 
           if [[ "-${COLLECTIONS}" = "-" ]]; then
-            CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core version for ${DIRS}"
-            CI_PR_TITTLE="chore: update ansible-core for ${DIRS} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
+            CI_COMMIT_MESSAGE="${ANSIBLE_CORE_VERSION}-${EE_VERSION}: Update ansible-core version for ${EES}"
+            CI_PR_TITTLE="chore: update ansible-core for ${EES} (${ANSIBLE_CORE_VERSION}-${EE_VERSION})"
           fi
           echo "CI_COMMIT_MESSAGE=${CI_COMMIT_MESSAGE}" >> "$GITHUB_ENV"
           echo "CI_PR_TITTLE=${CI_PR_TITTLE}" >> "$GITHUB_ENV"
