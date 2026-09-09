@@ -124,6 +124,7 @@ jobs:
             grep -- '${ANSIBLE_CORE_VERSION}-' | \
             awk -F'-' '{ if (NF > 1 && $2 ~ /^[0-9]+$/) { print $2 + 1; found=1 } } END { if (!found) print 1 }'
           )"
+          echo "EE_VERSION=${EE_VERSION}"
           echo "EE_VERSION=${EE_VERSION}" >> "$GITHUB_ENV"
 
           echo "ANSIBLE_BRANCH_NAME=ansible-core-${ANSIBLE_CORE_VERSION}-${EE_VERSION}_${ANSIBLE_COMMUNITY_VERSION}" >> "$GITHUB_ENV"
